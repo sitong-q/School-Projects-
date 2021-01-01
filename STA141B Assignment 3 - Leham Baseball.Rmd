@@ -1,0 +1,390 @@
+---
+title: "STA141B HW3"
+author: "Sitong Qian"
+date: "11/10/2020"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,include=FALSE}
+library('RSQLite')
+library('DBI')
+library('dplyr')
+library('tidyverse')
+setwd('/Users/ssta/Desktop')
+baseball = dbConnect(SQLite(),'lahman2013.sqlite')
+listTables = dbListTables(baseball)
+```
+
+#1:What years does the data cover? are there data for each of these years?
+
+To solve this, first I read over the description of baseball and found out the table have yearID as variable, since Teams probably is the most conclusive one, so I focus on Teams Table, and with SQL function like this. To find if there is data for each of these years, I simply use distinct function to find how many distince years covered in the dataset and do some alegebra, to test if it is covered for all the range.
+
+```{r}
+yearID = dbGetQuery(baseball,'SELECT yearID FROM Teams') 
+distinct_yearID <- distinct(yearID)
+```
+
+The years covered from 1871 to 2013. 2013-1871+1 = 143, Since there are 143 rows in the unique yearID. thus there are data for each of these years. 
+
+
+#2:How many (unique) people are included in the database? How many are players, managers, etc?
+
+To solve this, I first looked for playerID in Master table by using SQLite select functions, for players, I union join three tables, Batting, Fielding and Pitching to find if individuals are actually involved in playing games, and in case there are repetitive count in three tables, I used distinct function here. Then I use SQLite function extract number of managers in managers table.
+
+```{r}
+#first group three sets by player id 
+#union (search )
+#inner join the manager table with this outer join 
+listFields = dbListFields(baseball,'Master')
+playeridplayer = dbGetQuery(baseball,'SELECT playerID From Master')
+playeridmaster = dbGetQuery(baseball,'SELECT playerID From Managers')
+playeridplyear_row = nrow(table(playeridplayer)) #count the individual player occured times, to find how many unique players are there
+playeridmaster_row =nrow(table(playeridmaster)) #count the individual player occured times, to find how many unique managers are there
+playerjoin = dbGetQuery(baseball,'SELECT playerID FROM Batting UNION SELECT playerID FROM Fielding UNION SELECT playerID FROM Pitching')
+playerjoin_row = nrow(table(distinct(playerjoin)))
+```
+
+Based on the output, there are 18354 unique people, about 682 managers, and 18170 players recorded in this data.
+
+
+#3: How many players became managers?
+
+To find this, I simply use R program, by rbind two dataset, and use table function on playerID.Since I precheck each ID only appear once in one dataset. Thus, If I use table function on combined dataset and have frequency is 2 means the same ID appeared in both dataset, which indicates, the players became managers.
+
+```{r}
+unqiuemasterid = unique(playeridmaster)
+combinedid = rbind(playerjoin,unqiuemasterid)
+combinedidfreq = as.data.frame(table(combinedid))
+rep = subset(combinedidfreq,combinedidfreq$Freq == 2)
+rep_row = nrow(rep)
+```
+
+There are 561 players become managers. 
+
+#4:How many players are there in each year, from 2000 to 2013? Do all teams have the same number of players?
+
+
+I first used SQLlite approached for selecting playerID with time period greater than 2000 in three position information table, and used pipeline functions to group the processed dataset by yearID. Since I knew from previous questions tone playerID will only occur once for each position information, I just need to count the yearID, to find out how many players in each year. Then, I apply the same method for teamID.
+
+
+```{r}
+
+playeryearID = dbGetQuery(baseball,'SELECT yearID,playerID FROM Batting Where yearID >= 2000 UNION SELECT yearID,playerID FROM Fielding Where yearID >= 2000 UNION SELECT yearID,playerID FROM Pitching Where yearID >= 2000')
+playeryearIDcount <- playeryearID  %>%
+  group_by(yearID) %>%
+  count(yearID) %>%
+  rename(year_players_count = n)
+playeryearIDcount
+
+playeryearteamID = dbGetQuery(baseball,'SELECT yearID,playerID,teamID FROM Batting Where yearID >= 2000 UNION SELECT yearID,playerID,teamID FROM Fielding Where yearID >= 2000 UNION SELECT yearID,playerID,teamID FROM Pitching Where yearID >= 2000')
+playeryearteamIDcount <- playeryearteamID  %>%
+  group_by(teamID) %>%
+  count(teamID) %>%
+  rename(team_players_count = n)
+playeryearteamIDcount
+
+```
+
+No,as obtained from table, different teams have different number of players.
+
+#5:What team won the World Series in 2010? Include the name of the team, the league and division.
+
+I used SQlite function to extract information in SeriesPost and left join with Teams table on both with same teamID, and also set the round to be the final round, and yearID = 2010.
+When doing this question, I found divisionID changed with repesct to time for same team, so take this into account, I also included another condition, joining information when two tables with same yearID information.
+
+```{r}
+WorldSerieswin2010 = dbGetQuery(baseball,'SELECT SeriesPost.yearID,SeriesPost.teamIDwinner,SeriesPost.lgIDwinner,TeamsHalf.divID,Teams.name FROM SeriesPost LEFT JOIN TeamsHalf ON SeriesPost.teamIDwinner = TeamsHalf.teamID LEFT JOIN Teams on SeriesPost.teamIDwinner = Teams.teamID WHERE SeriesPost.yearID == 2010 AND SeriesPost.round = "WS" AND SeriesPost.yearID == Teams.yearID')
+distinct(WorldSerieswin2010)
+```
+
+#6:What team lost the World Series each year? Again, include the name of the team, league and division.
+
+I used SQlite function to extract information in SeriesPost and left join with Teams table  with same teamID, and also set the round to be the final round, and order by yearID
+
+```{r}
+
+WorldSeriesloss = dbGetQuery(baseball,'SELECT SeriesPost.yearID,SeriesPost.teamIDloser,SeriesPost.lgIDloser,Teams.divID,Teams.name FROM SeriesPost LEFT JOIN Teams ON SeriesPost.teamIDloser = Teams.teamID WHERE SeriesPost.yearID = Teams.yearID AND SeriesPost.round = "WS" ORDER BY SeriesPost.yearID')
+distinct(WorldSeriesloss)
+
+```
+
+
+#7:Compute the table of World Series winners for all years, again with the name of the team, league and division.
+
+I used SQlite function to extract information in SeriesPost and left join with Teams table  with same teamID, and also set the round to be the final round, and order by yearID.
+
+```{r}
+WorldSerieswin = dbGetQuery(baseball,'SELECT SeriesPost.yearID,SeriesPost.teamIDwinner,SeriesPost.lgIDwinner,Teams.divID,Teams.name FROM SeriesPost LEFT JOIN Teams ON SeriesPost.teamIDwinner = Teams.teamID WHERE SeriesPost.yearID = Teams.yearID AND SeriesPost.round = "WS" ORDER BY SeriesPost.yearID')
+distinctwin = distinct(WorldSerieswin)
+distinctwin 
+```
+
+#8：Compute the table that has both the winner and runner-up for the World Series in each tuple/row for all years, again with the name of the team, league and division, and also the number games the losing team won in the series. 
+
+I basically used the same logic as the above question, but just including more information from two tables. Here I have noticed that there are problems exsited in the loss information for world series, thus the table start from 1903, otherwise, it should start from 1884.
+
+```{r}
+WorldSeriesloser = dbGetQuery(baseball,'SELECT SeriesPost.yearID,SeriesPost.teamIDloser,SeriesPost.lgIDloser,Teams.divID,Teams.name,SeriesPost.losses FROM SeriesPost 
+                             LEFT JOIN Teams ON SeriesPost.teamIDloser = Teams.teamID 
+                             WHERE SeriesPost.yearID = Teams.yearID AND SeriesPost.round = "WS" 
+                             ORDER BY SeriesPost.yearID')
+distinct = distinct(WorldSeriesloser)
+merge_WorldSeriesloser <- merge(WorldSerieswin,WorldSeriesloser,by = c('yearID'))
+merge_WorldSeriesloser
+
+
+```
+
+#9:Do you see a relationship between the number of games won in a season and winning the World Series?
+
+I extract the wins information by using almost the identity method that I used for the above one, and used ggplot to visualize it, namely, how many rounds did each World Series winner winned in the history.
+
+```{r}
+WorldSerieswins = dbGetQuery(baseball,'SELECT SeriesPost.yearID,SeriesPost.teamIDwinner,SeriesPost.lgIDwinner,Teams.divID,Teams.name,SeriesPost.wins FROM SeriesPost LEFT JOIN Teams ON SeriesPost.teamIDwinner = Teams.teamID WHERE SeriesPost.yearID = Teams.yearID AND SeriesPost.round = "WS" ORDER BY SeriesPost.yearID')
+
+graph <- ggplot(WorldSerieswins,aes(x = wins, fill = teamIDwinner)) + geom_bar(position = 'stack')
+graph
+```
+
+Based on the graph, if the team win four games or more, it's highly likely this team will win the whole series. 
+
+#10. In 2003, what were the three highest salaries? (We refer here to unique salaries, i.e., there may be several players getting the exact same amount.) Find the players who got any of these 3 salaries with all of their details?
+
+To find the three highest salaries, I extract information from Master and Salaries, left join both on same playerID with yearID = 2003,and then have is order in the descendant way and take the first three rows.
+
+```{r}
+salarytopthree  = dbGetQuery(baseball,'SELECT Salaries.*,Master.* FROM Salaries LEFT JOIN Master on Salaries.playerID = MASTER.playerID WHERE Salaries.yearID = "2003" ORDER BY Salaries.salary DESC LIMIT 3')
+salarytopthree
+
+```
+ 
+#11.For 2010, compute the total payroll of each of the different teams. Next compute the team payrolls for all years in the database for which we have salary information. Display these in a plot.
+
+To find the three highest salaries, I extract information from Master and Salaries, left join both on same playerID with yearID = 2010,and then have is order in the descendant way. For all years, I used the same way except, not setting the yearID, and then, I applied ggplot, and have it converted to numeric display instead of scientific notation. 
+
+```{r,warning=FALSE}
+library(scales)
+library(ggthemes)
+salarypayteam2010 = dbGetQuery(baseball,'SELECT SUM(Salaries.salary) AS teamSalary, Salaries.yearID,Salaries.teamID FROM Salaries WHERE Salaries.yearID = 2010 GROUP BY Salaries.yearID,Salaries.teamID ORDER BY teamSalary DESC ')
+salarypayteam2010
+
+salarypayteamall = dbGetQuery(baseball,'SELECT SUM(Salaries.salary) AS teamSalary, Salaries.yearID,Salaries.teamID FROM Salaries GROUP BY Salaries.yearID,Salaries.teamID ORDER BY yearID  ')
+salarypayteamall
+
+graph_aggregatebyyear <- ggplot(salarypayteamall,aes(x = yearID, y = teamSalary, fill = teamID)) + geom_bar(stat="identity")+scale_y_continuous(labels = comma)+theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('TEAM PAYROLLS')
+graph_aggregatebyyear 
+```
+
+#12.Explore the change in salary over time. Use a plot. Identify the teams that won the world series or league on the plot. How does salary relate to winning the league and/or world series.
+
+I added two another dataset, one for world Series win teams from 1985 to 2013 since I found out the salary information only recorded from 1985, one for salary information. Then, I joined two datasets with same teamID and yearID by using function from dplyr package in R, and graph it. To combined two graph together, one for total teams add-up payrolls and one for winner team payrolls, I created a new dataset, and included both tables information, and graph it as it from two categorical for each year. 
+
+
+
+```{r,warning=FALSE}
+library("ggpubr")
+library(forecast)
+
+graph_aggregatebyyear <- ggplot(salarypayteamall,aes(x = yearID, y = teamSalary, fill = teamID)) + geom_bar(stat="identity")+scale_y_continuous(labels = comma)+theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('TEAM PAYROLLS')
+
+
+WorldSerieswinsteam <- dbGetQuery(baseball,'SELECT SeriesPost.yearID,SeriesPost.teamIDwinner,SeriesPost.lgIDwinner FROM SeriesPost WHERE round = "WS"')
+
+WorldSerieswinsteam1985_2013 <- subset(WorldSerieswinsteam,WorldSerieswinsteam$yearID >= '1985')
+rename_WorldSerieswinsteam1985_2013 <- rename(WorldSerieswinsteam1985_2013, teamID = teamIDwinner)
+
+
+joined <- inner_join(salarypayteamall, rename_WorldSerieswinsteam1985_2013, by = c("teamID" = "teamID", "yearID" = "yearID"))
+
+
+joined_graph = ggplot(joined,aes(x = yearID, y = teamSalary, fill = teamID)) + geom_bar(stat="identity")+scale_y_continuous(labels = comma)+theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('WIN TEAMS PAYROLLS')
+
+aggregatebyyear = aggregate(teamSalary ~ yearID, data = salarypayteamall, FUN = sum)
+joined2 <- inner_join(joined, aggregatebyyear, by = c("yearID" = "yearID"))
+
+
+joined22 <- select(joined2,c(yearID, teamSalary.y))
+joined22$teamID <- c('ALL')
+joined33 <- select(joined2,c(yearID, teamID,teamSalary.x))
+renamed_joined33 <- rename(joined33,teamSalary.y = teamSalary.x)
+combinedjoined <- rbind(joined22,renamed_joined33)
+
+joined_graph2 = ggplot(combinedjoined,aes(x = yearID, y = teamSalary.y, fill = teamID))+geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('WIN TEAMS PAYROLLS VS ALL TEAMS PAYROLLS')
+graph_aggregatebyyear 
+joined_graph
+joined_graph2
+
+```
+
+As it can be seen from the graph, if the team win the world series, it's will have a good amount of salary, but still not that impressive compared to payrolls for all team.
+
+#13. Which player has hit the most home runs? Show the number per year.
+
+First, invetigated on the description, home runs are indicated in Batting and Pitching table. Using SQLite to extract infomration from these two tables and left join with Master tables for player names.Then, I found out find the max for each year is diffcult to apply in SQLite, I used aggregate function in R and inner_join two dataset one same values. 
+
+```{r}
+homerunsbatting <- dbGetQuery(baseball, 'SELECT Batting.playerID,Batting.yearID,Batting.HR,Master.nameFirst,Master.nameLast FROM Batting LEFT JOIN Master on Batting.playerID = Master.playerID GROUP BY Batting.playerID,Batting.yearID ORDER BY Batting.HR DESC')
+
+homerunspitching <- dbGetQuery(baseball, 'SELECT Pitching.playerID,Pitching.yearID,Pitching.HR,Master.nameFirst,Master.nameLast FROM Pitching LEFT JOIN Master on Pitching.playerID = Master.playerID GROUP BY Pitching.playerID,Pitching.yearID ORDER BY Pitching.HR DESC')
+
+
+aggregate_max_batting <- aggregate(HR ~ yearID, data =homerunsbatting , max)
+joined_aggregate_max_batting <- inner_join(aggregate_max_batting, homerunsbatting , by = c("HR" = "HR", "yearID" = "yearID"))
+
+aggregate_max_pitching <- aggregate(HR ~ yearID, data =homerunsbatting , max)
+joined_aggregate_max_pitching <- inner_join(aggregate_max_pitching, homerunspitching , by = c("HR" = "HR", "yearID" = "yearID"))
+
+joined_aggregate_max_batting
+joined_aggregate_max_pitching
+```
+
+The player hit most run called Barry Bonds, with 73 runs in year 2001.
+
+#14. Has the distribution of home runs for players increased over the years?
+To solve this, I basically applied aggregate function from R and have the function set to SUM. Then applied ggplot2 to this dataset. 
+```{r}
+aggregate_sum_batting <- aggregate(HR ~ yearID, data =homerunsbatting , sum)
+aggregate_sum_pitching <- aggregate(HR ~ yearID, data =homerunspitching , sum)
+
+
+aggregate_sum_batting$type = c('batting')
+aggregate_sum_pitching$type = c('pitching')
+
+combinedsumhomeruns <- rbind(aggregate_sum_batting,aggregate_sum_pitching)
+
+aggregate_sum_batting_picture = ggplot(combinedsumhomeruns,aes(x = yearID, y = HR, fill = type)) +geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('HOME RUNS WITH RESPECT TO YEARS')
+
+```
+
+From the graph, it can be seen that the distributions for both batting and pitching increased over time.
+
+#15 Do players who hit more home runs receive higher salaries?
+I used SQLite function to extract infomration from three tables,and I have noticed that there are some overlap information between batting and pitching table, For which if HR indicated as 0, it probably store information in another table. Thus, I combined two table and subset the dataset as if HR is not 0. Then applied ggplot on it, to see the overall distribution of change of salary with respect to home runs. 
+```{r}
+homerunsbatting_salary <- dbGetQuery(baseball, 'SELECT Batting.playerID,Batting.yearID,Batting.HR,Master.nameFirst,Master.nameLast,Salaries.salary FROM Batting LEFT JOIN Master on Batting.playerID = Master.playerID LEFT JOIN Salaries ON Batting.playerID = Salaries.playerID GROUP BY Batting.playerID,Batting.yearID ORDER BY Salaries.salary DESC')
+
+
+homerunspitching_salary <- dbGetQuery(baseball, 'SELECT Pitching.playerID,Pitching.yearID,Pitching.HR,Master.nameFirst,Master.nameLast,Salaries.salary FROM Pitching LEFT JOIN Master on Pitching.playerID = Master.playerID LEFT JOIN Salaries ON Pitching.playerID = Salaries.playerID GROUP BY Pitching.playerID,Pitching.yearID ORDER BY Salaries.salary DESC')
+
+
+cc <- rbind(homerunspitching_salary,homerunsbatting_salary)
+
+combinedtable_home_run_salary <- subset(cc, cc$HR != 0 )
+
+aggregate_home_run_salary = ggplot(combinedtable_home_run_salary,aes(x = HR, y = salary)) +geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('HOME RUNS WITH RESPECT TO SAlARY')
+ 
+aggregate_home_run_salary
+```
+
+As it shown in the graph, there is even a negative association between number of home runs and salary individual got. 
+
+#16 Are certain baseball parks better for hitting home runs?
+
+First, I found out the information for baseball parks stored in Teams table. Thus, I first extract information from Teams table. I take the first 20 parks as recommendation for hitting home runs. 
+```{r}
+park_home_run <- dbGetQuery(baseball,'SELECT Teams.HR, Teams.park FROM  Teams Group By Teams.park ORDER BY HR DESC LIMIT 20')
+park_home_run
+```
+
+#17. What’s the distribution of double plays? triple plays?
+I simply extract information from Teams table, and found out there is diffculty calling 2B and 3B, so I used R to process the later code.  
+```{r}
+plays <- dbGetQuery(baseball,"SELECT Teams.* FROM Teams GROUP BY yearID ")
+Double_plays_graph = ggplot(plays,aes(x = yearID, y = `2B`)) +geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('DOUBLE PlAYS WITH RESPECT TO YEAR')
+Double_plays_graph
+
+Triple_plays_graph = ggplot(plays,aes(x = yearID, y = `3B`)) +geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('TRIPLE PlAYS WITH RESPECT TO YEAR')
+Triple_plays_graph
+```
+
+As it is showed in the graph, the number for Double Plays in a increased trend until 1940, and in a decreased trend until 1980, but again, follow a increased trend from 1980 to 2020.
+
+However, for triple play, it is steady decreased trend. 
+
+#18. What pitchers have a large number of double or triple plays? Again, give their details (names,team, year, ...).
+
+Since it is asked for pitchers, I extract information from pitching table using sqlite function, and found out there probably a typo in the question, since there are doubles information stored for pitcher table, thus, I extract it from batting table, and then use R code to sort it.
+```{r}
+Batting_plays  = dbGetQuery(baseball,'SELECT Master.*,Batting.* FROM Batting LEFT JOIN Master on Batting.playerID = MASTER.playerID')
+sorted_batting_plays_double <- Batting_plays[order(-Batting_plays$`2B`),]
+sorted_batting_plays_triple <- Batting_plays[order(-Batting_plays$`3B`),]
+head(sorted_batting_plays_double,1)
+head(sorted_batting_plays_triple,1)
+```
+
+#19. How many games do pitchers start in a season? Plot this against games finished in a season.
+To do this, I first selected game started, game finished from pitching post table since it recorded statistics after a season. 
+```{r}
+pitchers_game <- dbGetQuery(baseball,'SELECT GS,GF,yearID FROM PitchingPost')
+pitchers_game[is.na(pitchers_game)] <- 0
+aggregate_pitcher_game_GS <- aggregate(GS ~ yearID,data = pitchers_game,sum)
+aggregate_pitcher_game_GF <- aggregate(GF ~ yearID,data = pitchers_game,sum)
+aggregate_pitcher_game_GS$Type = c('GS')
+aggregate_pitcher_game_GF$Type = c('GF')
+aggregate_pitcher_game_GS <- rename(aggregate_pitcher_game_GS,Game = GS)
+aggregate_pitcher_game_GF <- rename(aggregate_pitcher_game_GF,Game = GF)
+combined_GS_GF <- rbind(aggregate_pitcher_game_GS,aggregate_pitcher_game_GF )
+
+combined_GS_GF_graph = ggplot(combined_GS_GF,aes(x = yearID, y = Game, fill = Type)) +geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('GS VS GF')
+combined_GS_GF_graph
+
+```
+
+As it shown in the graph,typically players started with more games at the begining of a seasons. but the rate for completing games have increaser over year. As for year after 2000, the two number are become very close.
+
+
+#20. How many games do pitchers win in a season?
+I basically follow the same procedure as the previous one.Since if not win, the W column have number 0, thus it is not interupt with the final results.
+```{r}
+pitchers_game_wins <- dbGetQuery(baseball,'SELECT W,yearID FROM PitchingPost')
+aggregate_pitchers_game_wins <- aggregate(W ~ yearID,data = pitchers_game_wins,sum)
+aggregate_pitchers_game_wins
+aggregate_pitchers_game_wins_graph = ggplot(aggregate_pitchers_game_wins,aes(x = yearID, y = W)) +geom_bar(position="dodge", stat="identity")+scale_y_continuous(labels = comma) + theme_wsj()+ scale_colour_wsj("colors6")+ggtitle('WINS IN SEASONS OVER YEAR')
+aggregate_pitchers_game_wins_graph
+```
+
+
+As it shown in the graph, the number of games win after seasons have grow with respect to year. 
+
+
+#21. How are wins related to hits, strikeouts, walks, homeruns and earned runs?
+I first selected information from Pitchingpost with all respected columns. Then, I subset the data with Wins not equal to 0, and then, for each category, I subset for categorical indicator is not 0, and finally have it recorded in a dataframe.
+```{r}
+pitchers_game_wins_inv <- dbGetQuery(baseball,'SELECT W,yearID,H,SO,BB,HR,ER FROM PitchingPost')
+pitchers_game_wins_inv <- subset(pitchers_game_wins_inv,pitchers_game_wins_inv$W != 0)
+pitchers_game_wins_inv_hits <- subset(pitchers_game_wins_inv,pitchers_game_wins_inv$H != 0)
+pitchers_game_wins_inv_strikeouts <- subset(pitchers_game_wins_inv,pitchers_game_wins_inv$SO != 0)
+pitchers_game_wins_inv_walks <- subset(pitchers_game_wins_inv,pitchers_game_wins_inv$BB != 0)
+pitchers_game_wins_inv_homeruns <- subset(pitchers_game_wins_inv,pitchers_game_wins_inv$HR != 0)
+pitchers_game_wins_inv_earnedruns <- subset(pitchers_game_wins_inv,pitchers_game_wins_inv$ER != 0)
+
+SUM <- data.frame('TYPE' = c('hits','strikeouts','walks','homeruns','earnedruns'),'Number_of_Wins' = c(1187,1186,1071,489,929))
+SUM
+```
+
+#22. What are the top ten collegiate producers of major league baseball players? How many colleges are represented in the database?
+
+First,I used unique playerID, to count number of students for each collegiate producers by using pipeline function to count the number of appearance of schoolID and extracted another table by only selecting schoolID and schoolName to use the distince functions. 
+```{r}
+school_player <- dbGetQuery(baseball,'SELECT SchoolsPlayers.playerid,Schools.schoolName,SchoolsPlayers.schoolID FROM SchoolsPlayers LEFT JOIN Schools On Schools.schoolID = SchoolsPlayers.schoolID')
+
+schools <- dbGetQuery(baseball,'SELECT Schools.schoolName,SchoolsPlayers.schoolID FROM SchoolsPlayers LEFT JOIN Schools On Schools.schoolID = SchoolsPlayers.schoolID')
+
+school_player_sort <- sort(table(school_player$schoolID))
+school_player_sort <- school_player %>% 
+  count(schoolID) %>%
+  rename(number_of_players = n) 
+school_player_sorted<- school_player_sort[order(-school_player_sort$number_of_players),]
+school_player_sort_10 <- head(school_player_sorted,10)
+Joined_information_school <- inner_join(school_player_sort_10,schools, by = c('schoolID'='schoolID'))
+distinct(Joined_information_school)
+nrow(distinct(schools))
+```
+
+There are 713 distinct schools documented in this dataset.
